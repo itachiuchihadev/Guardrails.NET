@@ -1,8 +1,8 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/AIGuard.NET/AIGuard.NET.csproj" />
+    <Project Path="src/AIGuard.NET.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/AIGuard.NET.Tests/AIGuard.NET.Tests.csproj" />
+    <Project Path="tests/AIGuard.NET.Tests.csproj" />
   </Folder>
 </Solution>

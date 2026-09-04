@@ -1,0 +1,41 @@
+name: Build, Test & Deploy to NuGet
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore Dependencies
+        run: dotnet restore AIGuard.NET.slnx
+
+      - name: Build (Release)
+        run: dotnet build AIGuard.NET.slnx --configuration Release --no-restore
+
+      - name: Run Tests
+        run: dotnet test AIGuard.NET.slnx --configuration Release --no-build --verbosity normal
+
+      - name: Pack NuGet Package
+        if: github.event_name != 'pull_request'
+        run: dotnet pack src/AIGuard.NET.csproj --configuration Release --no-build --output ./nupkg
+
+      - name: Publish to NuGet
+        if: github.event_name != 'pull_request' && env.NUGET_API_KEY != ''
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
