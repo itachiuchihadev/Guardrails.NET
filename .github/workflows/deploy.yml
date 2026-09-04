@@ -1,41 +1,71 @@
-name: Build, Test & Deploy to NuGet
+name: Publish NuGet Packages
 
 on:
   push:
-    branches: [ main, master ]
     tags:
-      - 'v*'
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
+      - 'v*' # Push events to matching v*, i.e. v1.0.0, v1.0.1
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+    inputs:
+      version:
+        description: 'Package Version (e.g. 1.0.0). Leave blank to use Directory.Build.props version'
+        required: false
+        default: ''
 
 jobs:
-  build-and-test:
+  build-test-publish:
+    name: Build, Test & Publish to NuGet
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    permissions:
+      contents: read
+      id-token: write # Required for NuGet.org Trusted Publishing (OIDC)
 
-      - name: Setup .NET SDK
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
       - name: Restore Dependencies
-        run: dotnet restore AIGuard.NET.slnx
+        run: dotnet restore
 
-      - name: Build (Release)
-        run: dotnet build AIGuard.NET.slnx --configuration Release --no-restore
+      - name: Build in Release Mode
+        run: dotnet build -c Release --no-restore
 
       - name: Run Tests
-        run: dotnet test AIGuard.NET.slnx --configuration Release --no-build --verbosity normal
+        run: dotnet test -c Release --no-build --verbosity normal --filter "Category!=Integration"
 
-      - name: Pack NuGet Package
-        if: github.event_name != 'pull_request'
-        run: dotnet pack src/AIGuard.NET.csproj --configuration Release --no-build --output ./nupkg
+      - name: Determine Version
+        id: get_version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+            echo "version_arg=/p:PackageVersion=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_VER="${GITHUB_REF#refs/tags/v}"
+            echo "VERSION=$TAG_VER" >> $GITHUB_ENV
+            echo "version_arg=/p:PackageVersion=$TAG_VER" >> $GITHUB_OUTPUT
+          else
+            echo "version_arg=" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Publish to NuGet
-        if: github.event_name != 'pull_request' && env.NUGET_API_KEY != ''
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Pack NuGet Packages
+        run: dotnet pack -c Release --no-build -o ./nupkgs ${{ steps.get_version.outputs.version_arg }}
+
+      - name: NuGet Login (OIDC Trusted Publishing)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish Packages to NuGet.org
+        run: |
+          dotnet nuget push ./nupkgs/*.nupkg \
+            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
