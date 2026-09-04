@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace AIGuard.NET.Abstractions;
+namespace Guardrails.NET.Abstractions;
 
 /// <summary>
 /// Result of running a guard validation against content.

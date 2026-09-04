@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace AIGuard.NET.Abstractions;
+namespace Guardrails.NET.Abstractions;
 
 /// <summary>
 /// Interface for content validation and sanitization guardrails.

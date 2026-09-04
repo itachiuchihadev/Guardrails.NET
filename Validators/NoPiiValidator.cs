@@ -2,9 +2,9 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using AIGuard.NET.Abstractions;
+using Guardrails.NET.Abstractions;
 
-namespace AIGuard.NET.Validators;
+namespace Guardrails.NET.Validators;
 
 /// <summary>
 /// Scans content for Personally Identifiable Information (PII) including emails, SSNs, credit cards, and phone numbers.

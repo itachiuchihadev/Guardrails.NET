@@ -2,9 +2,9 @@ using System;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using AIGuard.NET.Abstractions;
+using Guardrails.NET.Abstractions;
 
-namespace AIGuard.NET.Validators;
+namespace Guardrails.NET.Validators;
 
 /// <summary>
 /// Validates content against a customizable regular expression.

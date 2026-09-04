@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Guardrails.NET.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/Guardrails.NET.Tests.csproj" />
+  </Folder>
+</Solution>

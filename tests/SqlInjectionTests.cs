@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
-using AIGuard.NET.Validators;
+using Guardrails.NET.Validators;
 using Xunit;
 
-namespace AIGuard.NET.Tests;
+namespace Guardrails.NET.Tests;
 
 public class SqlInjectionTests
 {

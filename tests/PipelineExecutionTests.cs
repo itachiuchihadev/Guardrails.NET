@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using AIGuard.NET.Abstractions;
-using AIGuard.NET.Extensions;
-using AIGuard.NET.Pipeline;
-using AIGuard.NET.Validators;
+using Guardrails.NET.Abstractions;
+using Guardrails.NET.Extensions;
+using Guardrails.NET.Pipeline;
+using Guardrails.NET.Validators;
 using Microsoft.Extensions.AI;
 using Xunit;
 
-namespace AIGuard.NET.Tests;
+namespace Guardrails.NET.Tests;
 
 public class MockEchoChatClient : IChatClient
 {

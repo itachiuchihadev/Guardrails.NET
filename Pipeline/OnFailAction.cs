@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace AIGuard.NET.Pipeline;
+namespace Guardrails.NET.Pipeline;
 
 /// <summary>
 /// Action to take when a guard validator discovers a violation.
@@ -21,7 +21,12 @@ public enum OnFailAction
     /// <summary>
     /// Records the violation in the result but leaves the content untouched.
     /// </summary>
-    LogOnly
+    LogOnly,
+
+    /// <summary>
+    /// Returns a pre-configured polite fallback response instead of throwing or sanitizing.
+    /// </summary>
+    ReturnFallback
 }
 
 /// <summary>

@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using AIGuard.NET.Abstractions;
+using Guardrails.NET.Abstractions;
 
-namespace AIGuard.NET.Pipeline;
+namespace Guardrails.NET.Pipeline;
 
 /// <summary>
 /// Orchestrates execution of a sequence of guard validators.
@@ -16,6 +16,11 @@ public sealed class GuardPipeline
     public IReadOnlyList<IGuardValidator> Validators => _validators;
 
     public OnFailAction FailAction { get; set; } = OnFailAction.Sanitize;
+
+    /// <summary>
+    /// Message returned when FailAction is set to ReturnFallback and violations occur.
+    /// </summary>
+    public string FallbackMessage { get; set; } = "I am unable to fulfill this request as it violates safety guidelines.";
 
     public GuardPipeline AddValidator(IGuardValidator validator)
     {
@@ -58,9 +63,23 @@ public sealed class GuardPipeline
         }
 
         bool overallValid = allViolations.Count == 0;
+        string finalContent;
+        if (!overallValid && FailAction == OnFailAction.ReturnFallback)
+        {
+            finalContent = FallbackMessage;
+        }
+        else if (FailAction == OnFailAction.Sanitize)
+        {
+            finalContent = currentContent;
+        }
+        else
+        {
+            finalContent = content;
+        }
+
         return new GuardResult(
             overallValid,
             allViolations,
-            FailAction == OnFailAction.Sanitize ? currentContent : content);
+            finalContent);
     }
 }

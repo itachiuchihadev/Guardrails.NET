@@ -1,6 +1,0 @@
-<Solution>
-  <Project Path="AIGuard.NET.csproj" />
-  <Folder Name="/tests/">
-    <Project Path="tests/AIGuard.NET.Tests.csproj" />
-  </Folder>
-</Solution>

@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using AIGuard.NET.Abstractions;
+using Guardrails.NET.Abstractions;
 
-namespace AIGuard.NET.Validators;
+namespace Guardrails.NET.Validators;
 
 /// <summary>
 /// Scans content for blocked words or toxic terms and can redact or reject them.

@@ -4,10 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PackageId>AIGuard.NET</PackageId>
+    <PackageId>Guardrails.NET</PackageId>
     <Version>0.1.0</Version>
-    <Authors>AIGuard.NET Contributors</Authors>
-    <Description>Enterprise-grade safety guardrails, zero-allocation PII redaction, SQL/code injection detection, and content validation middleware for .NET and Microsoft.Extensions.AI.</Description>
+    <Authors>Guardrails.NET Contributors</Authors>
+    <Description>Enterprise-grade safety guardrails, prompt injection detection, PII &amp; secrets redaction, SQL injection defense, schema validation, and context steering middleware for .NET and Microsoft.Extensions.AI.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>ai;llm;guardrails;safety;pii;security;sql-injection;middleware</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

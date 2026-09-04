@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AIGuard.NET.csproj" />
+    <ProjectReference Include="..\Guardrails.NET.csproj" />
   </ItemGroup>
 
 </Project>
