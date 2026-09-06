@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Guardrails.NET.Abstractions;
+using Guardrails.NET.Internal;
 
 namespace Guardrails.NET.Pipeline;
 
@@ -22,10 +23,51 @@ public sealed class GuardPipeline
     /// </summary>
     public string FallbackMessage { get; set; } = "I am unable to fulfill this request as it violates safety guidelines.";
 
+    public GuardPipeline()
+    {
+    }
+
+    public GuardPipeline(params IGuardValidator[] validators)
+    {
+        if (validators != null)
+        {
+            AddValidators(validators);
+        }
+    }
+
+    public GuardPipeline(IEnumerable<IGuardValidator> validators, OnFailAction failAction = OnFailAction.Sanitize)
+    {
+        if (validators != null)
+        {
+            AddValidators(validators);
+        }
+        FailAction = failAction;
+    }
+
     public GuardPipeline AddValidator(IGuardValidator validator)
     {
-        ArgumentNullException.ThrowIfNull(validator);
+        GuardHelper.ThrowIfNull(validator);
         _validators.Add(validator);
+        return this;
+    }
+
+    public GuardPipeline AddValidators(params IGuardValidator[] validators)
+    {
+        GuardHelper.ThrowIfNull(validators);
+        foreach (var validator in validators)
+        {
+            AddValidator(validator);
+        }
+        return this;
+    }
+
+    public GuardPipeline AddValidators(IEnumerable<IGuardValidator> validators)
+    {
+        GuardHelper.ThrowIfNull(validators);
+        foreach (var validator in validators)
+        {
+            AddValidator(validator);
+        }
         return this;
     }
 

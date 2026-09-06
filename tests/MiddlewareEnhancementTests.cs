@@ -16,6 +16,7 @@ public class MockChatClient : IChatClient
 {
     public bool WasCalled { get; private set; }
     public List<ChatMessage> LastReceivedMessages { get; private set; } = new();
+    public ChatOptions? LastReceivedOptions { get; private set; }
     public string ResponseToReturn { get; set; } = "Default safe response";
 
     public ChatClientMetadata Metadata => new("MockChatClient");
@@ -27,6 +28,7 @@ public class MockChatClient : IChatClient
     {
         WasCalled = true;
         LastReceivedMessages = chatMessages.ToList();
+        LastReceivedOptions = options;
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, ResponseToReturn)));
     }
 
@@ -37,6 +39,7 @@ public class MockChatClient : IChatClient
     {
         WasCalled = true;
         LastReceivedMessages = chatMessages.ToList();
+        LastReceivedOptions = options;
         yield return new ChatResponseUpdate(ChatRole.Assistant, ResponseToReturn);
         await Task.CompletedTask;
     }
@@ -124,4 +127,71 @@ public class MiddlewareEnhancementTests
         Assert.Single(updates);
         Assert.Equal("Streaming prompt injection blocked.", updates[0].Text);
     }
+
+    [Fact]
+    public async Task UseGuard_WithToolValidatorsInOptions_ConvertsToAIToolsAndPassesToInnerClient()
+    {
+        var mockClient = new MockChatClient();
+        var options = new GuardChatClientOptions()
+            .AddTool(new NoPiiValidator())
+            .AddTool(new SqlInjectionValidator());
+
+        var guardedClient = mockClient.UseGuard(options: options);
+
+        await guardedClient.GetResponseAsync("Hello assistant");
+
+        Assert.True(mockClient.WasCalled);
+        Assert.NotNull(mockClient.LastReceivedOptions);
+        Assert.NotNull(mockClient.LastReceivedOptions.Tools);
+        Assert.Equal(2, mockClient.LastReceivedOptions.Tools.Count);
+        Assert.Contains(mockClient.LastReceivedOptions.Tools, t => t.Name == "sanitize_pii");
+        Assert.Contains(mockClient.LastReceivedOptions.Tools, t => t.Name == "verify_sql_safety");
+    }
+
+    [Fact]
+    public async Task UseGuard_WithCallerChatOptions_MergesToolsCorrectly()
+    {
+        var mockClient = new MockChatClient();
+        var options = new GuardChatClientOptions()
+            .AddTool(new NoPiiValidator());
+
+        var guardedClient = mockClient.UseGuard(options: options);
+
+        var customTool = AIFunctionFactory.Create(() => "result", name: "custom_calc", description: "Calculator");
+        var requestOptions = new ChatOptions
+        {
+            Tools = new List<AITool> { customTool }
+        };
+
+        await guardedClient.GetResponseAsync("Calculate something", requestOptions);
+
+        Assert.True(mockClient.WasCalled);
+        Assert.NotNull(mockClient.LastReceivedOptions);
+        Assert.NotNull(mockClient.LastReceivedOptions.Tools);
+        Assert.Equal(2, mockClient.LastReceivedOptions.Tools.Count);
+        Assert.Contains(mockClient.LastReceivedOptions.Tools, t => t.Name == "custom_calc");
+        Assert.Contains(mockClient.LastReceivedOptions.Tools, t => t.Name == "sanitize_pii");
+    }
+
+    [Fact]
+    public async Task UseGuard_WithStreaming_InjectsToolsIntoEffectiveOptions()
+    {
+        var mockClient = new MockChatClient();
+        var options = new GuardChatClientOptions()
+            .AddTools(new SecretsValidator(), new PromptInjectionValidator());
+
+        var guardedClient = mockClient.UseGuard(options: options);
+
+        await foreach (var _ in guardedClient.GetStreamingResponseAsync("Hello"))
+        {
+        }
+
+        Assert.True(mockClient.WasCalled);
+        Assert.NotNull(mockClient.LastReceivedOptions);
+        Assert.NotNull(mockClient.LastReceivedOptions.Tools);
+        Assert.Equal(2, mockClient.LastReceivedOptions.Tools.Count);
+        Assert.Contains(mockClient.LastReceivedOptions.Tools, t => t.Name == "redact_secrets");
+        Assert.Contains(mockClient.LastReceivedOptions.Tools, t => t.Name == "check_prompt_injection");
+    }
 }
+

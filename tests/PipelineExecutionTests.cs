@@ -177,4 +177,35 @@ public class PipelineExecutionTests
         var response = await guardedClient.GetResponseAsync(history);
         Assert.Equal("Hello back!", response.Text);
     }
+
+    private class CustomCompetitorMentionValidator : IGuardValidator
+    {
+        public string Name => "CustomCompetitorMentionValidator";
+
+        public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+        {
+            if (content.Contains("CompetitorCorp", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(GuardResult.Fail(new[] { "Mentioning competitors is not allowed." }, content));
+            }
+            return Task.FromResult(GuardResult.Pass(content));
+        }
+    }
+
+    [Fact]
+    public async Task GuardPipeline_AcceptsUserDefinedCustomValidators()
+    {
+        // Custom validator passed into GuardPipeline constructor or factory
+        var customValidator = new CustomCompetitorMentionValidator();
+        var pipeline = Guardrails.NET.Factories.GuardrailsFactory.CreateInputPipeline(
+            customValidator,
+            new SqlInjectionValidator());
+
+        var blockedResult = await pipeline.ValidateAsync("Check out CompetitorCorp products.");
+        Assert.False(blockedResult.IsValid);
+        Assert.Contains("Mentioning competitors", blockedResult.Violations[0]);
+
+        var passResult = await pipeline.ValidateAsync("Tell me about Guardrails.NET.");
+        Assert.True(passResult.IsValid);
+    }
 }

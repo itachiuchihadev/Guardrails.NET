@@ -11,21 +11,23 @@ namespace Guardrails.NET.Validators;
 /// </summary>
 public sealed class NoPiiValidator : IGuardValidator
 {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
+
     private static readonly Regex EmailRegex = new(
         @"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout);
 
     private static readonly Regex SsnRegex = new(
         @"\b\d{3}-\d{2}-\d{4}\b",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, DefaultRegexTimeout);
 
     private static readonly Regex PhoneRegex = new(
         @"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, DefaultRegexTimeout);
 
     private static readonly Regex CreditCardRegex = new(
         @"\b(?:\d{4}[-\s]?){3}\d{4}\b|\b\d{15,16}\b",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, DefaultRegexTimeout);
 
     public string Name => "NoPiiValidator";
 

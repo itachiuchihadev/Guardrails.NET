@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Guardrails.NET.Abstractions;
+using Guardrails.NET.Internal;
 
 namespace Guardrails.NET.Validators;
 
@@ -11,6 +12,7 @@ namespace Guardrails.NET.Validators;
 /// </summary>
 public sealed class RegexValidator : IGuardValidator
 {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
     private readonly Regex _regex;
     private readonly string _name;
 
@@ -25,10 +27,11 @@ public sealed class RegexValidator : IGuardValidator
         bool mustMatch = false,
         string? replacement = null,
         string name = "RegexValidator",
-        RegexOptions options = RegexOptions.None)
+        RegexOptions options = RegexOptions.None,
+        TimeSpan? matchTimeout = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(pattern);
-        _regex = new Regex(pattern, options);
+        GuardHelper.ThrowIfNullOrWhiteSpace(pattern);
+        _regex = new Regex(pattern, options, matchTimeout ?? DefaultRegexTimeout);
         ViolationMessage = violationMessage;
         MustMatch = mustMatch;
         Replacement = replacement;

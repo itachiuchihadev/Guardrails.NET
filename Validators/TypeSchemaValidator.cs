@@ -16,9 +16,12 @@ namespace Guardrails.NET.Validators;
 /// <typeparam name="T">The expected C# class or record structure.</typeparam>
 public sealed class TypeSchemaValidator<T> : IGuardValidator where T : class
 {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
+
     private static readonly Regex MarkdownCodeFenceRegex = new(
         @"```(?:json)?\s*([\s\S]*?)\s*```",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase,
+        DefaultRegexTimeout);
 
     public string Name => $"TypeSchemaValidator<{typeof(T).Name}>";
 

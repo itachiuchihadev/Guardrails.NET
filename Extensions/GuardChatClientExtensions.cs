@@ -4,7 +4,9 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Guardrails.NET.Internal;
 using Guardrails.NET.Pipeline;
+using Guardrails.NET.Tools;
 using Microsoft.Extensions.AI;
 
 namespace Guardrails.NET.Extensions;
@@ -14,15 +16,28 @@ namespace Guardrails.NET.Extensions;
 /// </summary>
 public static class GuardChatClientExtensions
 {
+
     public static IChatClient UseGuard(
         this IChatClient innerClient,
         GuardPipeline? inputPipeline = null,
         GuardPipeline? outputPipeline = null,
+        ToolGuardrailPipeline? toolPipeline = null,
         string? systemGuidance = null,
         GuardChatClientOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(innerClient);
-        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, systemGuidance, options);
+        GuardHelper.ThrowIfNull(innerClient);
+        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, toolPipeline, systemGuidance, options);
+    }
+
+    public static IChatClient UseGuard(
+        this IChatClient innerClient,
+        GuardPipeline? inputPipeline,
+        GuardPipeline? outputPipeline,
+        string? systemGuidance,
+        GuardChatClientOptions? options = null)
+    {
+        GuardHelper.ThrowIfNull(innerClient);
+        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, null, systemGuidance, options);
     }
 
     public static IChatClient UseGuard(
@@ -30,38 +45,76 @@ public static class GuardChatClientExtensions
         Action<GuardChatClientOptions> configureOptions,
         GuardPipeline? inputPipeline = null,
         GuardPipeline? outputPipeline = null,
+        ToolGuardrailPipeline? toolPipeline = null,
         string? systemGuidance = null)
     {
-        ArgumentNullException.ThrowIfNull(innerClient);
-        ArgumentNullException.ThrowIfNull(configureOptions);
+        GuardHelper.ThrowIfNull(innerClient);
+        GuardHelper.ThrowIfNull(configureOptions);
         var options = new GuardChatClientOptions();
         configureOptions(options);
-        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, systemGuidance, options);
+        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, toolPipeline, systemGuidance, options);
+    }
+
+    public static IChatClient UseToolGuards(
+        this IChatClient innerClient,
+        ToolGuardrailPipeline toolPipeline,
+        GuardChatClientOptions? options = null)
+    {
+        GuardHelper.ThrowIfNull(innerClient);
+        GuardHelper.ThrowIfNull(toolPipeline);
+        return new GuardedChatClient(innerClient, toolPipeline: toolPipeline, options: options);
     }
 }
 
 /// <summary>
-/// Wraps an IChatClient with input and output GuardPipelines and optional system safety guidance.
+/// Wraps an IChatClient with input, output, and tool GuardPipelines and optional system safety guidance.
 /// </summary>
 public sealed class GuardedChatClient : DelegatingChatClient
 {
     private readonly GuardPipeline? _inputPipeline;
     private readonly GuardPipeline? _outputPipeline;
+    private readonly ToolGuardrailPipeline? _toolPipeline;
     private readonly string? _systemGuidance;
     private readonly GuardChatClientOptions _options;
+    private readonly IList<AITool> _aiTools;
 
     public GuardedChatClient(
         IChatClient innerClient,
         GuardPipeline? inputPipeline = null,
         GuardPipeline? outputPipeline = null,
+        ToolGuardrailPipeline? toolPipeline = null,
         string? systemGuidance = null,
         GuardChatClientOptions? options = null)
         : base(innerClient)
     {
         _inputPipeline = inputPipeline;
         _outputPipeline = outputPipeline;
+        _toolPipeline = toolPipeline;
         _systemGuidance = systemGuidance;
         _options = options ?? new GuardChatClientOptions();
+
+        var tools = new List<AITool>();
+        if (_options.ToolValidators != null)
+        {
+            foreach (var validator in _options.ToolValidators)
+            {
+                if (validator != null)
+                {
+                    tools.Add(validator.AsAITool());
+                }
+            }
+        }
+        if (_options.CustomTools != null)
+        {
+            foreach (var tool in _options.CustomTools)
+            {
+                if (tool != null)
+                {
+                    tools.Add(tool);
+                }
+            }
+        }
+        _aiTools = tools;
     }
 
     public override async Task<ChatResponse> GetResponseAsync(
@@ -69,7 +122,7 @@ public sealed class GuardedChatClient : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var messagesList = ApplySystemGuidance(chatMessages.ToList());
+        var messagesList = PrepareMessages(chatMessages);
 
         // 1. Guard Input
         var (guardedMessages, fallback) = await GuardInputMessagesAsync(messagesList, cancellationToken);
@@ -81,10 +134,25 @@ public sealed class GuardedChatClient : DelegatingChatClient
 
         messagesList = guardedMessages ?? messagesList;
 
-        // 2. Execute Inner Client
-        var response = await base.GetResponseAsync(messagesList, options, cancellationToken);
+        // 2. Execute Inner Client with effective tools
+        var effectiveOptions = ResolveEffectiveChatOptions(options);
+        var response = await base.GetResponseAsync(messagesList, effectiveOptions, cancellationToken);
 
-        // 3. Guard Output
+        // 3. Guard Tool Calls (if response requested function calls)
+        if (_toolPipeline != null)
+        {
+            var toolFallback = await GuardToolCallsAsync(response, cancellationToken);
+            if (toolFallback != null)
+            {
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, toolFallback))
+                {
+                    ResponseId = response.ResponseId,
+                    ModelId = response.ModelId
+                };
+            }
+        }
+
+        // 4. Guard Output Text
         if (_outputPipeline != null && !string.IsNullOrEmpty(response.Text))
         {
             var result = await _outputPipeline.ValidateAsync(response.Text, cancellationToken);
@@ -115,7 +183,7 @@ public sealed class GuardedChatClient : DelegatingChatClient
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var messagesList = ApplySystemGuidance(chatMessages.ToList());
+        var messagesList = PrepareMessages(chatMessages);
 
         // 1. Guard Input
         var (guardedMessages, fallback) = await GuardInputMessagesAsync(messagesList, cancellationToken);
@@ -128,8 +196,23 @@ public sealed class GuardedChatClient : DelegatingChatClient
         messagesList = guardedMessages ?? messagesList;
 
         // 2. Stream and Guard Output
-        await foreach (var update in base.GetStreamingResponseAsync(messagesList, options, cancellationToken).WithCancellation(cancellationToken))
+        var effectiveOptions = ResolveEffectiveChatOptions(options);
+        await foreach (var update in base.GetStreamingResponseAsync(messagesList, effectiveOptions, cancellationToken).WithCancellation(cancellationToken))
         {
+            if (_toolPipeline != null && update.Contents != null)
+            {
+                foreach (var functionCall in update.Contents.OfType<FunctionCallContent>())
+                {
+                    var context = new ToolCallContext(functionCall.Name, functionCall.Arguments, functionCall.CallId);
+                    var result = await _toolPipeline.ValidateAsync(context, cancellationToken);
+                    if (!result.IsValid && _toolPipeline.FailAction == OnToolFailAction.ReturnFallbackToUser)
+                    {
+                        yield return new ChatResponseUpdate(ChatRole.Assistant, _toolPipeline.FallbackMessage);
+                        yield break;
+                    }
+                }
+            }
+
             if (_outputPipeline != null && !string.IsNullOrEmpty(update.Text))
             {
                 var result = await _outputPipeline.ValidateAsync(update.Text, cancellationToken);
@@ -152,6 +235,44 @@ public sealed class GuardedChatClient : DelegatingChatClient
 
             yield return update;
         }
+    }
+
+    private async Task<string?> GuardToolCallsAsync(ChatResponse response, CancellationToken cancellationToken)
+    {
+        if (_toolPipeline == null || response.Messages == null)
+        {
+            return null;
+        }
+
+        foreach (var msg in response.Messages)
+        {
+            if (msg.Contents == null) continue;
+
+            for (int i = 0; i < msg.Contents.Count; i++)
+            {
+                if (msg.Contents[i] is FunctionCallContent functionCall)
+                {
+                    var context = new ToolCallContext(functionCall.Name, functionCall.Arguments, functionCall.CallId);
+                    var result = await _toolPipeline.ValidateAsync(context, cancellationToken);
+
+                    if (!result.IsValid)
+                    {
+                        if (_toolPipeline.FailAction == OnToolFailAction.ReturnFallbackToUser)
+                        {
+                            return _toolPipeline.FallbackMessage;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private List<ChatMessage> PrepareMessages(IEnumerable<ChatMessage> chatMessages)
+    {
+        var list = chatMessages as List<ChatMessage> ?? chatMessages.ToList();
+        return ApplySystemGuidance(list);
     }
 
     private List<ChatMessage> ApplySystemGuidance(List<ChatMessage> messages)
@@ -289,4 +410,48 @@ public sealed class GuardedChatClient : DelegatingChatClient
 
         return (guardedMessages, null);
     }
+
+    private ChatOptions? ResolveEffectiveChatOptions(ChatOptions? requestOptions)
+    {
+        if (_aiTools.Count == 0)
+        {
+            return requestOptions;
+        }
+
+        if (requestOptions == null)
+        {
+            return new ChatOptions { Tools = _aiTools };
+        }
+
+        if (requestOptions.Tools == null || requestOptions.Tools.Count == 0)
+        {
+            var cloned = requestOptions.Clone();
+            cloned.Tools = _aiTools;
+            return cloned;
+        }
+
+        var mergedTools = new List<AITool>(_aiTools.Count + requestOptions.Tools.Count);
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var tool in requestOptions.Tools)
+        {
+            if (tool != null && seenNames.Add(tool.Name))
+            {
+                mergedTools.Add(tool);
+            }
+        }
+
+        foreach (var tool in _aiTools)
+        {
+            if (tool != null && seenNames.Add(tool.Name))
+            {
+                mergedTools.Add(tool);
+            }
+        }
+
+        var result = requestOptions.Clone();
+        result.Tools = mergedTools;
+        return result;
+    }
 }
+

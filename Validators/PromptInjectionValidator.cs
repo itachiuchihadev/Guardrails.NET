@@ -12,37 +12,39 @@ namespace Guardrails.NET.Validators;
 /// </summary>
 public sealed class PromptInjectionValidator : IGuardValidator
 {
-    private static readonly Regex[] BuiltInPatterns = new[]
-    {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
+
+    private static readonly Regex[] BuiltInPatterns =
+    [
         // 1. Direct instruction overrides
         new Regex(
             @"\b(?:ignore|disregard|forget|bypass|override)\s+(?:all\s+|your\s+|all\s+your\s+|any\s+|the\s+)?(?:previous|prior|above|initial|system)?\s*(?:instructions|prompts|rules|commands|constraints|directives)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         // 2. Jailbreak personas (DAN, Developer Mode, Unrestricted)
         new Regex(
             @"\b(?:you\s+are\s+now|act\s+as)\s+(?:unfiltered|unrestricted|DAN|jailbroken|evil|an\s+AI\s+without\s+rules)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         new Regex(
             @"\b(?:do\s+anything\s+now|jailbreak\s+mode|developer\s+mode\s+(?:enabled|output)|unrestricted\s+mode)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         // 3. System prompt / role spoofing
         new Regex(
             @"\b(?:new\s+system\s+instruction|system\s+prompt\s+override|switch\s+to\s+developer\s+mode)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         // 4. Delimiter and token spoofing (Llama / ChatML / Anthropic faking)
         new Regex(
             @"(?:<\|im_start\|>|<\|im_end\|>|<\|endoftext\|>|\[INST\]\s*<<SYS>>|---\s*BEGIN\s+SYSTEM\s+(?:PROMPT|MESSAGE)\s*---|===\s*SYSTEM\s*===)",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         // 5. Encoded / eval execution tricks
         new Regex(
             @"(?:\bbase64_decode\b|\beval\s*\(|\batob\s*\()",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase)
-    };
+            RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout)
+    ];
 
     public string Name => "PromptInjectionValidator";
 
