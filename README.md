@@ -54,6 +54,26 @@ Console.WriteLine(response.Text);
 
 ---
 
+## Multi-Turn Conversations & Validation Scopes
+
+By default, `GuardedChatClient` evaluates **only the latest user message** (`GuardValidationScope.LatestUserMessageOnly`). This ensures that if a user's previous turn triggered a fallback or security restriction, subsequent valid messages can continue normally without being blocked by prior chat history.
+
+You can customize the input validation scope via `GuardChatClientOptions`:
+
+```csharp
+IChatClient guardedClient = chatClient.UseGuard(
+    inputPipeline: inputPipeline,
+    outputPipeline: outputPipeline,
+    options: new GuardChatClientOptions
+    {
+        // Options: LatestUserMessageOnly (default), LatestMessageOnly, AllUserMessages, AllMessages
+        ValidationScope = GuardValidationScope.LatestUserMessageOnly
+    });
+```
+
+
+---
+
 ## Output Schema Validation
 
 Ensure that your LLM returns valid JSON conforming to your C# models:

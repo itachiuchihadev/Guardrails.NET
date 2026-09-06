@@ -18,10 +18,25 @@ public static class GuardChatClientExtensions
         this IChatClient innerClient,
         GuardPipeline? inputPipeline = null,
         GuardPipeline? outputPipeline = null,
+        string? systemGuidance = null,
+        GuardChatClientOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(innerClient);
+        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, systemGuidance, options);
+    }
+
+    public static IChatClient UseGuard(
+        this IChatClient innerClient,
+        Action<GuardChatClientOptions> configureOptions,
+        GuardPipeline? inputPipeline = null,
+        GuardPipeline? outputPipeline = null,
         string? systemGuidance = null)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
-        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, systemGuidance);
+        ArgumentNullException.ThrowIfNull(configureOptions);
+        var options = new GuardChatClientOptions();
+        configureOptions(options);
+        return new GuardedChatClient(innerClient, inputPipeline, outputPipeline, systemGuidance, options);
     }
 }
 
@@ -33,17 +48,20 @@ public sealed class GuardedChatClient : DelegatingChatClient
     private readonly GuardPipeline? _inputPipeline;
     private readonly GuardPipeline? _outputPipeline;
     private readonly string? _systemGuidance;
+    private readonly GuardChatClientOptions _options;
 
     public GuardedChatClient(
         IChatClient innerClient,
         GuardPipeline? inputPipeline = null,
         GuardPipeline? outputPipeline = null,
-        string? systemGuidance = null)
+        string? systemGuidance = null,
+        GuardChatClientOptions? options = null)
         : base(innerClient)
     {
         _inputPipeline = inputPipeline;
         _outputPipeline = outputPipeline;
         _systemGuidance = systemGuidance;
+        _options = options ?? new GuardChatClientOptions();
     }
 
     public override async Task<ChatResponse> GetResponseAsync(
@@ -54,30 +72,14 @@ public sealed class GuardedChatClient : DelegatingChatClient
         var messagesList = ApplySystemGuidance(chatMessages.ToList());
 
         // 1. Guard Input
-        if (_inputPipeline != null)
+        var (guardedMessages, fallback) = await GuardInputMessagesAsync(messagesList, cancellationToken);
+        if (fallback != null)
         {
-            var guardedMessages = new List<ChatMessage>();
-            foreach (var msg in messagesList)
-            {
-                if (!string.IsNullOrEmpty(msg.Text))
-                {
-                    var result = await _inputPipeline.ValidateAsync(msg.Text, cancellationToken);
-                    if (!result.IsValid && _inputPipeline.FailAction == OnFailAction.ReturnFallback)
-                    {
-                        // Short-circuit: Do NOT call inner LLM
-                        return new ChatResponse(new ChatMessage(ChatRole.Assistant, _inputPipeline.FallbackMessage));
-                    }
-
-                    if (_inputPipeline.FailAction == OnFailAction.Sanitize && result.SanitizedContent != null)
-                    {
-                        guardedMessages.Add(new ChatMessage(msg.Role, result.SanitizedContent));
-                        continue;
-                    }
-                }
-                guardedMessages.Add(msg);
-            }
-            messagesList = guardedMessages;
+            // Short-circuit: Do NOT call inner LLM
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, fallback));
         }
+
+        messagesList = guardedMessages ?? messagesList;
 
         // 2. Execute Inner Client
         var response = await base.GetResponseAsync(messagesList, options, cancellationToken);
@@ -116,30 +118,14 @@ public sealed class GuardedChatClient : DelegatingChatClient
         var messagesList = ApplySystemGuidance(chatMessages.ToList());
 
         // 1. Guard Input
-        if (_inputPipeline != null)
+        var (guardedMessages, fallback) = await GuardInputMessagesAsync(messagesList, cancellationToken);
+        if (fallback != null)
         {
-            var guardedMessages = new List<ChatMessage>();
-            foreach (var msg in messagesList)
-            {
-                if (!string.IsNullOrEmpty(msg.Text))
-                {
-                    var result = await _inputPipeline.ValidateAsync(msg.Text, cancellationToken);
-                    if (!result.IsValid && _inputPipeline.FailAction == OnFailAction.ReturnFallback)
-                    {
-                        yield return new ChatResponseUpdate(ChatRole.Assistant, _inputPipeline.FallbackMessage);
-                        yield break;
-                    }
-
-                    if (_inputPipeline.FailAction == OnFailAction.Sanitize && result.SanitizedContent != null)
-                    {
-                        guardedMessages.Add(new ChatMessage(msg.Role, result.SanitizedContent));
-                        continue;
-                    }
-                }
-                guardedMessages.Add(msg);
-            }
-            messagesList = guardedMessages;
+            yield return new ChatResponseUpdate(ChatRole.Assistant, fallback);
+            yield break;
         }
+
+        messagesList = guardedMessages ?? messagesList;
 
         // 2. Stream and Guard Output
         await foreach (var update in base.GetStreamingResponseAsync(messagesList, options, cancellationToken).WithCancellation(cancellationToken))
@@ -198,5 +184,109 @@ public sealed class GuardedChatClient : DelegatingChatClient
         }
 
         return result;
+    }
+
+    private async Task<(List<ChatMessage>? GuardedMessages, string? FallbackMessage)> GuardInputMessagesAsync(
+        List<ChatMessage> messagesList,
+        CancellationToken cancellationToken)
+    {
+        if (_inputPipeline == null || messagesList.Count == 0)
+        {
+            return (messagesList, null);
+        }
+
+        var guardedMessages = new List<ChatMessage>(messagesList);
+
+        switch (_options.ValidationScope)
+        {
+            case GuardValidationScope.LatestUserMessageOnly:
+            {
+                int targetIndex = guardedMessages.FindLastIndex(m => m.Role == ChatRole.User);
+                if (targetIndex >= 0)
+                {
+                    var msg = guardedMessages[targetIndex];
+                    if (!string.IsNullOrEmpty(msg.Text))
+                    {
+                        var result = await _inputPipeline.ValidateAsync(msg.Text, cancellationToken);
+                        if (!result.IsValid && _inputPipeline.FailAction == OnFailAction.ReturnFallback)
+                        {
+                            return (null, _inputPipeline.FallbackMessage);
+                        }
+
+                        if (_inputPipeline.FailAction == OnFailAction.Sanitize && result.SanitizedContent != null)
+                        {
+                            guardedMessages[targetIndex] = new ChatMessage(msg.Role, result.SanitizedContent);
+                        }
+                    }
+                }
+                break;
+            }
+
+            case GuardValidationScope.LatestMessageOnly:
+            {
+                int targetIndex = guardedMessages.Count - 1;
+                var msg = guardedMessages[targetIndex];
+                if (!string.IsNullOrEmpty(msg.Text))
+                {
+                    var result = await _inputPipeline.ValidateAsync(msg.Text, cancellationToken);
+                    if (!result.IsValid && _inputPipeline.FailAction == OnFailAction.ReturnFallback)
+                    {
+                        return (null, _inputPipeline.FallbackMessage);
+                    }
+
+                    if (_inputPipeline.FailAction == OnFailAction.Sanitize && result.SanitizedContent != null)
+                    {
+                        guardedMessages[targetIndex] = new ChatMessage(msg.Role, result.SanitizedContent);
+                    }
+                }
+                break;
+            }
+
+            case GuardValidationScope.AllUserMessages:
+            {
+                for (int i = 0; i < guardedMessages.Count; i++)
+                {
+                    var msg = guardedMessages[i];
+                    if (msg.Role == ChatRole.User && !string.IsNullOrEmpty(msg.Text))
+                    {
+                        var result = await _inputPipeline.ValidateAsync(msg.Text, cancellationToken);
+                        if (!result.IsValid && _inputPipeline.FailAction == OnFailAction.ReturnFallback)
+                        {
+                            return (null, _inputPipeline.FallbackMessage);
+                        }
+
+                        if (_inputPipeline.FailAction == OnFailAction.Sanitize && result.SanitizedContent != null)
+                        {
+                            guardedMessages[i] = new ChatMessage(msg.Role, result.SanitizedContent);
+                        }
+                    }
+                }
+                break;
+            }
+
+            case GuardValidationScope.AllMessages:
+            {
+                for (int i = 0; i < guardedMessages.Count; i++)
+                {
+                    var msg = guardedMessages[i];
+                    if (!string.IsNullOrEmpty(msg.Text))
+                    {
+                        var result = await _inputPipeline.ValidateAsync(msg.Text, cancellationToken);
+                        if (!result.IsValid && _inputPipeline.FailAction == OnFailAction.ReturnFallback)
+                        {
+                            return (null, _inputPipeline.FallbackMessage);
+                        }
+
+                        if (_inputPipeline.FailAction == OnFailAction.Sanitize && result.SanitizedContent != null)
+                        {
+                            guardedMessages[i] = new ChatMessage(msg.Role, result.SanitizedContent);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        return (guardedMessages, null);
     }
 }
