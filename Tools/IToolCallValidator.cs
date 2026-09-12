@@ -6,16 +6,9 @@ namespace Guardrails.NET.Tools;
 
 /// <summary>
 /// Defines a validator that inspects tool/function invocations requested by LLM agents.
+/// All tool validators implement <see cref="IGuardValidator"/> and can be used across all pipelines.
 /// </summary>
-public interface IToolCallValidator
+public interface IToolCallValidator : IGuardValidator
 {
-    /// <summary>
-    /// The unique name of this tool validator.
-    /// </summary>
-    string Name { get; }
-
-    /// <summary>
-    /// Validates a tool invocation context.
-    /// </summary>
-    Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default);
 }
+

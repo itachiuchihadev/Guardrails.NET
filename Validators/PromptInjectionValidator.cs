@@ -10,7 +10,7 @@ namespace Guardrails.NET.Validators;
 /// <summary>
 /// Scans content for prompt injection attacks, jailbreak patterns, and system delimiter spoofing.
 /// </summary>
-public sealed class PromptInjectionValidator : IGuardValidator
+public sealed class PromptInjectionValidator : GuardValidatorBase
 {
     private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
 
@@ -46,7 +46,7 @@ public sealed class PromptInjectionValidator : IGuardValidator
             RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout)
     ];
 
-    public string Name => "PromptInjectionValidator";
+    public override string Name => "PromptInjectionValidator";
 
     public string ReplacementToken { get; set; } = "[BLOCKED_INJECTION]";
 
@@ -55,7 +55,7 @@ public sealed class PromptInjectionValidator : IGuardValidator
     /// </summary>
     public List<Regex> CustomPatterns { get; } = new();
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -93,3 +93,4 @@ public sealed class PromptInjectionValidator : IGuardValidator
         return Task.FromResult(GuardResult.Pass(content));
     }
 }
+

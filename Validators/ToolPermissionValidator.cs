@@ -12,7 +12,7 @@ namespace Guardrails.NET.Validators;
 /// <summary>
 /// Enforces Role-Based Access Control (RBAC) and permissions on tool/function invocations.
 /// </summary>
-public sealed class ToolPermissionValidator : IToolCallValidator
+public sealed class ToolPermissionValidator : GuardValidatorBase, IToolCallValidator
 {
     private readonly HashSet<string>? _allowedTools;
     private readonly HashSet<string>? _blockedTools;
@@ -28,9 +28,9 @@ public sealed class ToolPermissionValidator : IToolCallValidator
         _permissionChecker = permissionChecker;
     }
 
-    public string Name => "ToolPermissionValidator";
+    public override string Name => "ToolPermissionValidator";
 
-    public Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
     {
         GuardHelper.ThrowIfNull(context);
 
@@ -62,4 +62,38 @@ public sealed class ToolPermissionValidator : IToolCallValidator
 
         return Task.FromResult(GuardResult.Pass(funcName));
     }
+
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return Task.FromResult(GuardResult.Pass(content));
+        }
+
+        string funcName = content.Trim();
+
+        if (_blockedTools != null && _blockedTools.Contains(funcName))
+        {
+            return Task.FromResult(GuardResult.Fail(
+                [$"Tool '{funcName}' is blocked by security permissions policy."],
+                funcName));
+        }
+
+        if (_allowedTools != null && !_allowedTools.Contains(funcName))
+        {
+            return Task.FromResult(GuardResult.Fail(
+                [$"Tool '{funcName}' is not in the list of allowed tools."],
+                funcName));
+        }
+
+        if (_permissionChecker != null && !_permissionChecker(funcName))
+        {
+            return Task.FromResult(GuardResult.Fail(
+                [$"User or agent does not have permission to execute tool '{funcName}'."],
+                funcName));
+        }
+
+        return Task.FromResult(GuardResult.Pass(funcName));
+    }
 }
+

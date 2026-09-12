@@ -3,9 +3,9 @@
 [![NuGet Version](https://img.shields.io/badge/nuget-v0.1.0-blue)](https://www.nuget.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Target Frameworks](https://img.shields.io/badge/.NET%20Standard-2.0-purple.svg)](https://learn.microsoft.com/en-us/dotnet/standard/net-standard)
-[![Target Frameworks](https://img.shields.io/badge/.NET-10.0%20%7C%208.0-purple.svg)](https://dotnet.microsoft.com/)
+[![Target Frameworks](https://img.shields.io/badge/.NET-10.0%20%7C%209.0%20%7C%208.0-purple.svg)](https://dotnet.microsoft.com/)
 
-**Guardrails.NET** is an enterprise-grade safety, security, and context-steering middleware library for .NET and `Microsoft.Extensions.AI`. It provides zero-token short-circuiting, prompt injection defense, PII & credential redaction, SSRF prevention, tool sandboxing, and output schema validation for AI agents and LLM applications.
+**Guardrails.NET** is an enterprise-grade safety, security, and context-steering middleware library for .NET and `Microsoft.Extensions.AI`. It provides zero-token short-circuiting, prompt injection defense, PII & credential redaction, SSRF prevention, tool-call sandboxing with model self-correction, and output schema validation for AI agents and LLM applications.
 
 ---
 
@@ -16,11 +16,13 @@
 - 👤 **PII Redaction**: Detects and sanitizes emails, US SSNs, credit cards, and phone numbers.
 - 💉 **SQL & Code Injection Detection**: Blocks dangerous SQL keywords, tautologies (`OR 1=1`), comments, and injection patterns.
 - 🗂️ **Tool-Call & Agent Guardrails**: Pre-execution hooks and validators for agent tool calling:
-  - **File Sandboxing (`FileAccessValidator`)**: Enforces directory roots, blocks path traversal (`..`), and protects sensitive files (`*.env`, `appsettings*.json`).
+  - **File Sandboxing (`FileAccessValidator`)**: Enforces directory roots, blocks path traversal (`..`), and protects sensitive files (`*.env`, `appsettings*.json`, `*.key`).
   - **SSRF Defense (`SsrfProtectionValidator`)**: Blocks loopback (`127.0.0.1`), private RFC-1918 subnets, and cloud instance metadata endpoints (`169.254.169.254`).
   - **Parameter Constraints (`RegexArgumentValidator`)**: Regex validation on function call arguments.
   - **RBAC (`ToolPermissionValidator`)**: Allow/deny tool lists and custom permission callbacks.
+- 🤖 **Model Self-Correction Loop**: When a tool call violates a policy, `GuardedChatClient` feeds the security violation back to the model as a `FunctionResultContent` tool result, allowing the LLM to autonomously self-correct without executing dangerous actions.
 - 📐 **Structured JSON & Schema Enforcement**: Validates LLM responses against C# models (`TypeSchemaValidator<T>`) including `System.ComponentModel.DataAnnotations`.
+- 🌊 **Streaming Guardrails**: Native `GetStreamingResponseAsync` support with token-by-token sanitization and buffered tool-call verification.
 - 🔄 **Multi-Turn Chat Safety**: Default `ValidationScope.LatestUserMessageOnly` avoids locking chat sessions when previous turns triggered refusals.
 - ⚡ **Dual-Targeted (.NET Standard 2.0 & .NET 10.0)**: Native high-performance execution on modern .NET with full backward compatibility for .NET Framework 4.6.2+, Unity, and Mono.
 
@@ -76,12 +78,22 @@ Console.WriteLine(response.Text);
 
 ## Tool-Call & Agent Execution Interception
 
-Protect agent execution loops by validating and intercepting tool calls before they run on your systems:
+Protect agent execution loops by validating and intercepting tool calls **before** they run on your systems. `GuardedChatClient` owns the tool invocation and self-correction loop:
+
+1. The LLM requests a function call (`FunctionCallContent`).
+2. `ToolGuardrailPipeline` inspects the function name and arguments before any code is executed.
+3. If validation fails:
+   - **`ReturnFeedbackToModel` (Default)**: Injects security feedback as a `FunctionResultContent` (in a `ChatRole.Tool` message). The LLM receives the error and autonomously self-corrects without executing dangerous actions.
+   - **`ReturnFallbackToUser`**: Short-circuits execution immediately and returns a safe fallback message to the caller.
+   - **`BlockAndThrow`**: Throws a `GuardViolationException`.
+4. If validation passes, `GuardedChatClient` executes the corresponding `AIFunction` from `ChatOptions.Tools` and provides the result back to the model.
 
 ```csharp
+using System.IO;
 using Guardrails.NET.Tools;
 using Guardrails.NET.Validators;
 using Guardrails.NET.Extensions;
+using Microsoft.Extensions.AI;
 
 var toolPipeline = new ToolGuardrailPipeline();
 
@@ -89,7 +101,7 @@ var toolPipeline = new ToolGuardrailPipeline();
 toolPipeline.AddValidator(new FileAccessValidator(new FileAccessOptions
 {
     AllowedRoots = [@"C:\MyApp\Workspace", "./src"],
-    ProtectedPatterns = ["*.env", "appsettings*.json", "*.key"],
+    ProtectedPatterns = ["*.env", "appsettings*.json", "*.key", "*.pem"],
     DisallowPathTraversal = true
 }));
 
@@ -100,58 +112,45 @@ toolPipeline.AddValidator(new SsrfProtectionValidator(new SsrfProtectionOptions
     BlockPrivateIpAddresses = true // Blocks localhost, 10.0.0.0/8, 169.254.169.254
 }));
 
-// 3. Return feedback to model for self-correction (or ReturnFallbackToUser / BlockAndThrow)
+// 3. Prevent SQL injection in tool query arguments
+toolPipeline.AddValidator(new SqlInjectionValidator());
+
+// 4. Return feedback to model for self-correction (default)
 toolPipeline.FailAction = OnToolFailAction.ReturnFeedbackToModel;
 
-// Attach to ChatClient
+// 5. Wrap IChatClient — GuardedChatClient manages tool execution and self-correction
 IChatClient guardedAgent = innerClient.UseGuard(toolPipeline: toolPipeline);
+
+// 6. Pass application tools in ChatOptions as standard Microsoft.Extensions.AI tools
+var readFileTool = AIFunctionFactory.Create(
+    (string filePath) => File.ReadAllText(filePath),
+    name: "read_file",
+    description: "Reads file content from disk.");
+
+var options = new ChatOptions { Tools = [readFileTool] };
+
+// If the LLM requests a blocked file (e.g. ../../.env), GuardedChatClient blocks execution,
+// feeds the violation back to the model, and allows the model to self-correct!
+var response = await guardedAgent.GetResponseAsync("Read config from ../../.env", options);
 ```
 
 ---
 
-## Exposing Safety Guardrails as Agent Tools (`AITool`)
+## Streaming Support
 
-Give AI agents the ability to validate data autonomously (e.g., verifying SQL query safety, sanitizing PII, or validating file paths before taking actions):
-
-### Automatic Injection via `GuardChatClientOptions` (Recommended)
-
-Pass validators directly to `GuardChatClientOptions`. `UseGuard` converts them into `AITool` instances at startup and injects them into the model's tool catalog on every request:
+`GuardedChatClient` natively supports streaming responses via `GetStreamingResponseAsync(...)`. Input attacks are short-circuited immediately, intermediate tool turns are buffered and validated, and the final response text is sanitized in real-time as tokens stream:
 
 ```csharp
-using Guardrails.NET.Extensions;
-using Guardrails.NET.Factories;
-using Guardrails.NET.Validators;
-using Microsoft.Extensions.AI;
-
-IChatClient guardedClient = innerClient.UseGuard(
-    inputPipeline: GuardrailsFactory.CreateInputPipeline(new PromptInjectionValidator()),
-    outputPipeline: GuardrailsFactory.CreateOutputPipeline(new SecretsValidator()),
-    options: new GuardChatClientOptions()
-        .AddTools(
-            new NoPiiValidator(),
-            new SqlInjectionValidator(),
-            new FileAccessValidator(new FileAccessOptions { AllowedRoots = [@"C:\App\Data"] })
-        )
+var client = innerClient.UseGuard(
+    inputPipeline: inputPipeline,
+    outputPipeline: outputPipeline,
+    toolPipeline: toolPipeline
 );
 
-// The AI agent automatically has access to safety tools in its tool catalog
-var response = await guardedClient.GetResponseAsync("Verify if this SQL query is safe: SELECT * FROM users");
-```
-
-### Standalone Export via `.AsAITool()`
-
-You can also convert individual validators or pipelines to `AITool` on demand:
-
-```csharp
-using Guardrails.NET.Tools;
-using Guardrails.NET.Validators;
-using Microsoft.Extensions.AI;
-
-AITool piiTool = new NoPiiValidator().AsAITool();
-AITool sqlTool = new SqlInjectionValidator().AsAITool();
-
-var options = new ChatOptions { Tools = [piiTool, sqlTool] };
-var response = await innerClient.GetResponseAsync("Check for PII", options);
+await foreach (var update in client.GetStreamingResponseAsync("Stream the system configuration", options))
+{
+    Console.Write(update.Text);
+}
 ```
 
 ---
@@ -161,6 +160,11 @@ var response = await innerClient.GetResponseAsync("Check for PII", options);
 Ensure LLM responses strictly conform to C# data contracts and `DataAnnotations`:
 
 ```csharp
+using System.ComponentModel.DataAnnotations;
+using Guardrails.NET.Pipeline;
+using Guardrails.NET.Validators;
+using Guardrails.NET.Extensions;
+
 public class OrderDto
 {
     [Required]
@@ -185,33 +189,59 @@ IChatClient client = innerClient.UseGuard(outputPipeline: outputPipeline);
 
 ## Multi-Turn Conversations & Validation Scopes
 
-In multi-turn chats, `GuardedChatClient` evaluates **only the latest user message** by default (`GuardValidationScope.LatestUserMessageOnly`), preventing earlier turns from locking the conversation.
+In multi-turn chats, `GuardedChatClient` evaluates **only the latest user message** by default (`GuardValidationScope.LatestUserMessageOnly`), preventing earlier turns or historical refusals from locking the conversation:
 
 ```csharp
 IChatClient client = innerClient.UseGuard(
     inputPipeline: inputPipeline,
+    toolPipeline: toolPipeline,
     options: new GuardChatClientOptions
     {
         // Options: LatestUserMessageOnly (default), LatestMessageOnly, AllUserMessages, AllMessages
-        ValidationScope = GuardValidationScope.LatestUserMessageOnly
+        ValidationScope = GuardValidationScope.LatestUserMessageOnly,
+        // Maximum tool loop turns before returning graceful fallback (default: 10)
+        MaxToolTurns = 10
     });
 ```
 
 ---
 
+## Fail Actions Reference
+
+### Text Pipeline Fail Actions (`OnFailAction`)
+
+| Action | Description |
+| :--- | :--- |
+| `ReturnFallback` *(Default for Input)* | Short-circuits execution and returns `FallbackMessage` without invoking the LLM (0 tokens). |
+| `Sanitize` *(Default for Output)* | Redacts offending content in-place with masked tokens (e.g. `[REDACTED_API_KEY]`, `[REDACTED_EMAIL]`). |
+| `ThrowException` | Throws `GuardViolationException` immediately containing the full list of violations. |
+| `LogOnly` | Records the violation in the result and logs, leaving content untouched. |
+
+### Tool Pipeline Fail Actions (`OnToolFailAction`)
+
+| Action | Description |
+| :--- | :--- |
+| `ReturnFeedbackToModel` *(Default)* | Injects security error feedback into conversation history as `FunctionResultContent` so the model can self-correct. |
+| `ReturnFallbackToUser` | Short-circuits execution immediately and returns a safe fallback message to the caller. |
+| `BlockAndThrow` | Throws `GuardViolationException` immediately upon discovering a tool violation. |
+
+---
+
 ## Built-in Validators Catalog
 
-| Validator | Target | Description |
+Every validator implements `IGuardValidator` and works across all pipelines: **Input**, **Output**, and **Tool Interception**.
+
+| Validator | Primary Target | Description |
 | :--- | :--- | :--- |
-| `PromptInjectionValidator` | Input | Detects jailbreaks, DAN prompts, instruction overrides, and system prompt spoofing. |
-| `SecretsValidator` | Input / Output | Detects and redacts OpenAI, Anthropic, AWS, GitHub, Slack tokens, JWTs, and Private Keys. |
-| `NoPiiValidator` | Input / Output | Detects and sanitizes emails, US SSNs, credit cards, and phone numbers. |
-| `SqlInjectionValidator` | Input | Flags hazardous SQL injection tokens, tautologies (`OR 1=1`), and DDL statements. |
-| `ToxicWordValidator` | Input / Output | Replaces or rejects custom prohibited words and terms. |
-| `TypeSchemaValidator<T>` | Output | Deserializes and validates JSON against C# models using `DataAnnotations`. |
-| `RegexValidator` | Input / Output | Custom pattern matching with `mustMatch` or sanitization replacement modes. |
-| `FileAccessValidator` | Tool Call / AITool | Restricts file access to allowed directory roots, blocks traversal, and protects sensitive files. |
-| `SsrfProtectionValidator` | Tool Call / AITool | Validates URLs, blocks SSRF, private IPs, and cloud metadata endpoints. |
+| `PromptInjectionValidator` | Input / Tool Args | Detects jailbreaks, DAN prompts, instruction overrides, and system prompt spoofing. |
+| `SecretsValidator` | Input / Output / Tool Args | Detects and redacts OpenAI, Anthropic, AWS, GitHub, Slack tokens, JWTs, and Private Keys. |
+| `NoPiiValidator` | Input / Output / Tool Args | Detects and sanitizes emails, US SSNs, credit cards, and phone numbers. |
+| `SqlInjectionValidator` | Input / Output / Tool Args | Flags hazardous SQL injection tokens, tautologies (`OR 1=1`), and DDL statements. |
+| `ToxicWordValidator` | Input / Output / Tool Args | Replaces or rejects custom prohibited words and terms. |
+| `TypeSchemaValidator<T>` | Output / Tool Args | Deserializes and validates JSON against C# models using `DataAnnotations`. |
+| `RegexValidator` | Input / Output / Tool Args | Custom pattern matching with `mustMatch` or sanitization replacement modes. |
+| `FileAccessValidator` | Tool Call / Input / Output | Restricts file access to allowed directory roots, blocks traversal, and protects sensitive files. |
+| `SsrfProtectionValidator` | Tool Call / Input / Output | Validates URLs, blocks SSRF, private IPs, and cloud metadata endpoints. |
 | `RegexArgumentValidator` | Tool Call | Enforces regex patterns on specific function arguments. |
 | `ToolPermissionValidator` | Tool Call | Whitelists and blacklists permitted tools per user role. |
 
@@ -219,14 +249,16 @@ IChatClient client = innerClient.UseGuard(
 
 ## Custom Validators
 
-Implement `IGuardValidator` (for content) or `IToolCallValidator` (for tools) to integrate bespoke enterprise rules:
+Implement `IGuardValidator` or inherit from `GuardValidatorBase` to integrate bespoke enterprise rules:
 
 ```csharp
-public class CompetitorBlockValidator : IGuardValidator
-{
-    public string Name => "CompetitorBlockValidator";
+using Guardrails.NET.Abstractions;
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+public class CompetitorBlockValidator : GuardValidatorBase
+{
+    public override string Name => "CompetitorBlockValidator";
+
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (content.Contains("CompetitorCorp", StringComparison.OrdinalIgnoreCase))
         {
@@ -240,7 +272,29 @@ public class CompetitorBlockValidator : IGuardValidator
 
 ---
 
+## Structured Logging & Observability
+
+`Guardrails.NET` integrates with `Microsoft.Extensions.Logging` (`ILogger` and `ILoggerFactory`). When enabled, every tool invocation, security violation, and self-correction feedback event is logged with zero hotpath overhead:
+
+```csharp
+using Microsoft.Extensions.Logging;
+
+// Attach a logger or logger factory to GuardChatClientOptions
+IChatClient client = innerClient.UseGuard(
+    inputPipeline: inputPipeline,
+    outputPipeline: outputPipeline,
+    toolPipeline: toolPipeline,
+    options: new GuardChatClientOptions()
+        .WithLoggerFactory(loggerFactory)
+);
+```
+
+### What gets logged:
+- **Tool Interception**: Logs intercepted function calls (`Information`), policy violations (`Warning`), and self-correction feedback returned to the model.
+- **Pipeline Validations**: Logs input/output evaluations, trigger reasons, and fallback short-circuits.
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
-

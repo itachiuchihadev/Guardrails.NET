@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Guardrails.NET.Abstractions;
 using Guardrails.NET.Internal;
 using Guardrails.NET.Pipeline;
+using Microsoft.Extensions.Logging;
 
 namespace Guardrails.NET.Tools;
 
@@ -13,10 +14,10 @@ namespace Guardrails.NET.Tools;
 /// </summary>
 public sealed class ToolGuardrailPipeline
 {
-    private readonly List<IToolCallValidator> _validators = new();
+    private readonly List<IGuardValidator> _validators = new();
     private readonly List<Func<ToolCallContext, CancellationToken, Task>> _preToolHooks = new();
 
-    public IReadOnlyList<IToolCallValidator> Validators => _validators;
+    public IReadOnlyList<IGuardValidator> Validators => _validators;
     public IReadOnlyList<Func<ToolCallContext, CancellationToken, Task>> PreToolHooks => _preToolHooks;
 
     /// <summary>
@@ -29,11 +30,16 @@ public sealed class ToolGuardrailPipeline
     /// </summary>
     public string FallbackMessage { get; set; } = "The requested tool action was blocked due to safety guidelines.";
 
+    /// <summary>
+    /// Gets or sets an optional logger for recording tool invocation interceptions and validation results.
+    /// </summary>
+    public ILogger? Logger { get; set; }
+
     public ToolGuardrailPipeline()
     {
     }
 
-    public ToolGuardrailPipeline(params IToolCallValidator[] validators)
+    public ToolGuardrailPipeline(params IGuardValidator[] validators)
     {
         if (validators != null)
         {
@@ -41,7 +47,7 @@ public sealed class ToolGuardrailPipeline
         }
     }
 
-    public ToolGuardrailPipeline(IEnumerable<IToolCallValidator> validators, OnToolFailAction failAction = OnToolFailAction.ReturnFeedbackToModel)
+    public ToolGuardrailPipeline(IEnumerable<IGuardValidator> validators, OnToolFailAction failAction = OnToolFailAction.ReturnFeedbackToModel)
     {
         if (validators != null)
         {
@@ -51,9 +57,9 @@ public sealed class ToolGuardrailPipeline
     }
 
     /// <summary>
-    /// Adds a tool call validator to the pipeline.
+    /// Adds a guard validator to the tool pipeline.
     /// </summary>
-    public ToolGuardrailPipeline AddValidator(IToolCallValidator validator)
+    public ToolGuardrailPipeline AddValidator(IGuardValidator validator)
     {
         GuardHelper.ThrowIfNull(validator);
         _validators.Add(validator);
@@ -61,9 +67,9 @@ public sealed class ToolGuardrailPipeline
     }
 
     /// <summary>
-    /// Adds multiple tool call validators to the pipeline.
+    /// Adds multiple guard validators to the tool pipeline.
     /// </summary>
-    public ToolGuardrailPipeline AddValidators(params IToolCallValidator[] validators)
+    public ToolGuardrailPipeline AddValidators(params IGuardValidator[] validators)
     {
         GuardHelper.ThrowIfNull(validators);
         foreach (var validator in validators)
@@ -74,9 +80,9 @@ public sealed class ToolGuardrailPipeline
     }
 
     /// <summary>
-    /// Adds multiple tool call validators to the pipeline.
+    /// Adds multiple guard validators to the tool pipeline.
     /// </summary>
-    public ToolGuardrailPipeline AddValidators(IEnumerable<IToolCallValidator> validators)
+    public ToolGuardrailPipeline AddValidators(IEnumerable<IGuardValidator> validators)
     {
         GuardHelper.ThrowIfNull(validators);
         foreach (var validator in validators)
@@ -103,6 +109,11 @@ public sealed class ToolGuardrailPipeline
     {
         GuardHelper.ThrowIfNull(context);
 
+        if (Logger != null && Logger.IsEnabled(LogLevel.Information))
+        {
+            Logger.LogInformation("Intercepted tool call '{FunctionName}' (CallId: {CallId}).", context.FunctionName, context.CallId);
+        }
+
         var allViolations = new List<string>();
 
         // 1. Run Pre-Tool Hooks
@@ -115,6 +126,10 @@ public sealed class ToolGuardrailPipeline
             {
                 string reason = context.BlockReason ?? "Tool call was blocked by a pre-invocation hook.";
                 allViolations.Add(reason);
+                if (Logger != null && Logger.IsEnabled(LogLevel.Warning))
+                {
+                    Logger.LogWarning("Tool call '{FunctionName}' was blocked by a pre-tool hook: {Reason}", context.FunctionName, reason);
+                }
                 break;
             }
         }
@@ -132,6 +147,12 @@ public sealed class ToolGuardrailPipeline
                     allViolations.AddRange(result.Violations);
                     context.IsBlocked = true;
                     context.BlockReason = string.Join("; ", result.Violations);
+
+                    if (Logger != null && Logger.IsEnabled(LogLevel.Warning))
+                    {
+                        Logger.LogWarning("Tool validator '{ValidatorName}' blocked tool '{FunctionName}': {Violations}",
+                            validator.Name, context.FunctionName, string.Join("; ", result.Violations));
+                    }
                     break;
                 }
             }
@@ -143,6 +164,11 @@ public sealed class ToolGuardrailPipeline
         {
             if (FailAction == OnToolFailAction.BlockAndThrow)
             {
+                if (Logger != null && Logger.IsEnabled(LogLevel.Error))
+                {
+                    Logger.LogError("Throwing GuardViolationException for tool '{FunctionName}'. Violations: {Violations}",
+                        context.FunctionName, string.Join("; ", allViolations));
+                }
                 throw new GuardViolationException(
                     $"Tool '{context.FunctionName}' violated safety policy: {string.Join("; ", allViolations)}",
                     allViolations);
@@ -151,9 +177,22 @@ public sealed class ToolGuardrailPipeline
             if (FailAction == OnToolFailAction.ReturnFeedbackToModel && context.CustomResult == null)
             {
                 context.CustomResult = $"[Security Error]: Tool execution '{context.FunctionName}' was blocked. Violations: {string.Join("; ", allViolations)}";
+                if (Logger != null && Logger.IsEnabled(LogLevel.Information))
+                {
+                    Logger.LogInformation("Returning self-correction feedback for tool '{FunctionName}' to model: {Feedback}",
+                        context.FunctionName, context.CustomResult);
+                }
+            }
+        }
+        else
+        {
+            if (Logger != null && Logger.IsEnabled(LogLevel.Debug))
+            {
+                Logger.LogDebug("Tool call '{FunctionName}' passed all safety validations.", context.FunctionName);
             }
         }
 
         return new GuardResult(isValid, allViolations, context.FunctionName);
     }
 }
+

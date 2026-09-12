@@ -10,7 +10,7 @@ namespace Guardrails.NET.Validators;
 /// <summary>
 /// Scans content for sensitive credentials and API secrets including OpenAI, Anthropic, AWS, GitHub tokens, JWTs, and Private Keys.
 /// </summary>
-public sealed class SecretsValidator : IGuardValidator
+public sealed class SecretsValidator : GuardValidatorBase
 {
     private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
 
@@ -52,12 +52,12 @@ public sealed class SecretsValidator : IGuardValidator
          "[REDACTED_JWT]")
     ];
 
-    public string Name => "SecretsValidator";
+    public override string Name => "SecretsValidator";
 
     public string DefaultMask { get; set; } = "[REDACTED_SECRET]";
     public bool UseSpecificMasks { get; set; } = true;
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -85,3 +85,4 @@ public sealed class SecretsValidator : IGuardValidator
         return Task.FromResult(GuardResult.Pass(content));
     }
 }
+

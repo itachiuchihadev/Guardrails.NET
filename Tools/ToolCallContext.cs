@@ -80,7 +80,7 @@ public sealed class ToolCallContext
     /// Searches for a string argument value matching candidate parameter names.
     /// </summary>
     public string? FindStringArgument(params string[] candidateNames) =>
-        FindArgumentValue((IReadOnlyList<string>)candidateNames)?.ToString();
+        FindStringArgument((IReadOnlyList<string>)candidateNames);
 
     /// <summary>
     /// Searches for a string argument value matching candidate parameter names.
@@ -88,6 +88,6 @@ public sealed class ToolCallContext
     public string? FindStringArgument(IReadOnlyList<string> candidateNames)
     {
         var val = FindArgumentValue(candidateNames);
-        return val?.ToString();
+        return Guardrails.NET.Internal.GuardHelper.TryExtractString(val, out var str) ? str : null;
     }
 }

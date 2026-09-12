@@ -48,7 +48,7 @@ public sealed class SsrfProtectionOptions
 /// <summary>
 /// Validates URLs against SSRF (Server-Side Request Forgery) attacks, private IP ranges, cloud metadata endpoints, and domain whitelists.
 /// </summary>
-public sealed class SsrfProtectionValidator : IToolCallValidator, IGuardValidator
+public sealed class SsrfProtectionValidator : GuardValidatorBase, IToolCallValidator
 {
     private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
     private readonly SsrfProtectionOptions _options;
@@ -70,9 +70,9 @@ public sealed class SsrfProtectionValidator : IToolCallValidator, IGuardValidato
         _cachedArgumentNames = _options.ArgumentNames?.ToArray() ?? [];
     }
 
-    public string Name => "SsrfProtectionValidator";
+    public override string Name => "SsrfProtectionValidator";
 
-    public Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
     {
         GuardHelper.ThrowIfNull(context);
 
@@ -91,7 +91,7 @@ public sealed class SsrfProtectionValidator : IToolCallValidator, IGuardValidato
         return Task.FromResult(GuardResult.Pass(urlString));
     }
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content))
         {

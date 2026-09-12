@@ -1,7 +1,3 @@
-using System.Collections.Generic;
-using Guardrails.NET.Abstractions;
-using Microsoft.Extensions.AI;
-
 namespace Guardrails.NET.Extensions;
 
 /// <summary>
@@ -41,73 +37,38 @@ public class GuardChatClientOptions
     public GuardValidationScope ValidationScope { get; set; } = GuardValidationScope.LatestUserMessageOnly;
 
     /// <summary>
-    /// Gets or sets the validators to automatically convert into <see cref="AITool"/> instances and inject into every request's <see cref="ChatOptions.Tools"/>.
+    /// Maximum number of tool-call / self-correction turns the guarded client will attempt
+    /// per request before returning a graceful fallback. Defaults to 10.
+    /// Mirrors <c>FunctionInvokingChatClient.MaximumIterationsPerRequest</c> semantics.
     /// </summary>
-    public IList<IGuardValidator> ToolValidators { get; set; } = new List<IGuardValidator>();
+    public int MaxToolTurns { get; set; } = 10;
+
 
     /// <summary>
-    /// Gets or sets custom <see cref="AITool"/> instances to inject into every request's <see cref="ChatOptions.Tools"/>.
+    /// Gets or sets an optional logger for recording guardrail evaluations and security events.
     /// </summary>
-    public IList<AITool> CustomTools { get; set; } = new List<AITool>();
+    public Microsoft.Extensions.Logging.ILogger? Logger { get; set; }
 
     /// <summary>
-    /// Fluent helper to add a validator as an AI tool.
+    /// Gets or sets an optional logger factory to create categorized loggers for different guardrail components.
     /// </summary>
-    public GuardChatClientOptions AddTool(IGuardValidator validator)
+    public Microsoft.Extensions.Logging.ILoggerFactory? LoggerFactory { get; set; }
+
+    /// <summary>
+    /// Fluent helper to configure a logger.
+    /// </summary>
+    public GuardChatClientOptions WithLogger(Microsoft.Extensions.Logging.ILogger logger)
     {
-        if (validator != null)
-        {
-            ToolValidators.Add(validator);
-        }
+        Logger = logger;
         return this;
     }
 
     /// <summary>
-    /// Fluent helper to add multiple validators as AI tools.
+    /// Fluent helper to configure a logger factory.
     /// </summary>
-    public GuardChatClientOptions AddTools(params IGuardValidator[] validators)
+    public GuardChatClientOptions WithLoggerFactory(Microsoft.Extensions.Logging.ILoggerFactory loggerFactory)
     {
-        if (validators != null)
-        {
-            for (int i = 0; i < validators.Length; i++)
-            {
-                if (validators[i] != null)
-                {
-                    ToolValidators.Add(validators[i]);
-                }
-            }
-        }
-        return this;
-    }
-
-    /// <summary>
-    /// Fluent helper to add a custom AI tool.
-    /// </summary>
-    public GuardChatClientOptions AddTool(AITool tool)
-    {
-        if (tool != null)
-        {
-            CustomTools.Add(tool);
-        }
-        return this;
-    }
-
-    /// <summary>
-    /// Fluent helper to add multiple custom AI tools.
-    /// </summary>
-    public GuardChatClientOptions AddTools(params AITool[] tools)
-    {
-        if (tools != null)
-        {
-            for (int i = 0; i < tools.Length; i++)
-            {
-                if (tools[i] != null)
-                {
-                    CustomTools.Add(tools[i]);
-                }
-            }
-        }
+        LoggerFactory = loggerFactory;
         return this;
     }
 }
-

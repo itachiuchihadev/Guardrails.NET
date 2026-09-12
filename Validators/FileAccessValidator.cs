@@ -72,7 +72,7 @@ public sealed class FileAccessOptions
 /// <summary>
 /// Inspects file operations in tool calls to enforce directory sandboxing, path traversal defense, and protected file policies.
 /// </summary>
-public sealed class FileAccessValidator : IToolCallValidator, IGuardValidator
+public sealed class FileAccessValidator : GuardValidatorBase, IToolCallValidator
 {
     private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
     private readonly FileAccessOptions _options;
@@ -88,9 +88,9 @@ public sealed class FileAccessValidator : IToolCallValidator, IGuardValidator
         _cachedArgumentNames = _options.ArgumentNames?.ToArray() ?? [];
     }
 
-    public string Name => "FileAccessValidator";
+    public override string Name => "FileAccessValidator";
 
-    public Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
     {
         GuardHelper.ThrowIfNull(context);
 
@@ -111,7 +111,7 @@ public sealed class FileAccessValidator : IToolCallValidator, IGuardValidator
         return Task.FromResult(GuardResult.Pass(filePath));
     }
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content))
         {

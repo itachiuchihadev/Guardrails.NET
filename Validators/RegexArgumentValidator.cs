@@ -11,7 +11,7 @@ namespace Guardrails.NET.Validators;
 /// <summary>
 /// Validates a specific tool argument value against a regular expression pattern.
 /// </summary>
-public sealed class RegexArgumentValidator : IToolCallValidator
+public sealed class RegexArgumentValidator : GuardValidatorBase, IToolCallValidator
 {
     private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
     private readonly string _argumentName;
@@ -36,9 +36,9 @@ public sealed class RegexArgumentValidator : IToolCallValidator
         _errorMessage = errorMessage;
     }
 
-    public string Name => $"RegexArgumentValidator({_argumentName})";
+    public override string Name => $"RegexArgumentValidator({_argumentName})";
 
-    public Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateToolCallAsync(ToolCallContext context, CancellationToken cancellationToken = default)
     {
         GuardHelper.ThrowIfNull(context);
 
@@ -65,4 +65,23 @@ public sealed class RegexArgumentValidator : IToolCallValidator
 
         return Task.FromResult(GuardResult.Pass(argVal));
     }
+
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return Task.FromResult(GuardResult.Pass(content));
+        }
+
+        if (!_regex.IsMatch(content))
+        {
+            string violation = _errorMessage ??
+                $"Content '{content}' does not match required pattern '{_regex}'.";
+
+            return Task.FromResult(GuardResult.Fail(new[] { violation }, content));
+        }
+
+        return Task.FromResult(GuardResult.Pass(content));
+    }
 }
+

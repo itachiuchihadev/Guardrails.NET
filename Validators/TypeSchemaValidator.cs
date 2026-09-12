@@ -14,7 +14,7 @@ namespace Guardrails.NET.Validators;
 /// Validates that content is valid JSON conforming to target type T and passes System.ComponentModel.DataAnnotations validation.
 /// </summary>
 /// <typeparam name="T">The expected C# class or record structure.</typeparam>
-public sealed class TypeSchemaValidator<T> : IGuardValidator where T : class
+public sealed class TypeSchemaValidator<T> : GuardValidatorBase where T : class
 {
     private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
 
@@ -23,14 +23,14 @@ public sealed class TypeSchemaValidator<T> : IGuardValidator where T : class
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         DefaultRegexTimeout);
 
-    public string Name => $"TypeSchemaValidator<{typeof(T).Name}>";
+    public override string Name => $"TypeSchemaValidator<{typeof(T).Name}>";
 
     public JsonSerializerOptions JsonOptions { get; set; } = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -92,4 +92,38 @@ public sealed class TypeSchemaValidator<T> : IGuardValidator where T : class
 
         return content.Trim();
     }
+
+    public override async Task<GuardResult> ValidateToolCallAsync(Guardrails.NET.Tools.ToolCallContext context, CancellationToken cancellationToken = default)
+    {
+        Guardrails.NET.Internal.GuardHelper.ThrowIfNull(context);
+
+        if (context.Arguments == null || context.Arguments.Count == 0)
+        {
+            return GuardResult.Pass(context.FunctionName);
+        }
+
+        // Search for JSON candidate argument (e.g. json, payload, data, body, content) or first string
+        string? targetJson = context.FindStringArgument("json", "payload", "data", "body", "content", "model", "input");
+
+        if (targetJson == null)
+        {
+            foreach (var kvp in context.Arguments)
+            {
+                if (Guardrails.NET.Internal.GuardHelper.TryExtractString(kvp.Value, out var str) &&
+                    (str.TrimStart().StartsWith("{") || str.TrimStart().StartsWith("[")))
+                {
+                    targetJson = str;
+                    break;
+                }
+            }
+        }
+
+        if (targetJson != null)
+        {
+            return await ValidateAsync(targetJson, cancellationToken);
+        }
+
+        return GuardResult.Pass(context.FunctionName);
+    }
 }
+

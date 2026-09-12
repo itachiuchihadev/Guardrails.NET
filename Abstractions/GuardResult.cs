@@ -37,4 +37,19 @@ public sealed class GuardResult
 
     public static GuardResult Fail(IEnumerable<string> violations, string? sanitizedContent = null) =>
         new(false, violations, sanitizedContent);
+
+    public override string ToString()
+    {
+        if (IsValid)
+        {
+            return SanitizedContent != null
+                ? $"Validation passed. Sanitized content: {SanitizedContent}"
+                : "Validation passed.";
+        }
+
+        string violationsStr = string.Join("; ", Violations);
+        return SanitizedContent != null
+            ? $"Validation failed: {violationsStr}. Sanitized content: {SanitizedContent}"
+            : $"Validation failed: {violationsStr}";
+    }
 }

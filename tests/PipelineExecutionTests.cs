@@ -178,11 +178,11 @@ public class PipelineExecutionTests
         Assert.Equal("Hello back!", response.Text);
     }
 
-    private class CustomCompetitorMentionValidator : IGuardValidator
+    private class CustomCompetitorMentionValidator : GuardValidatorBase
     {
-        public string Name => "CustomCompetitorMentionValidator";
+        public override string Name => "CustomCompetitorMentionValidator";
 
-        public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+        public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
         {
             if (content.Contains("CompetitorCorp", StringComparison.OrdinalIgnoreCase))
             {

@@ -10,7 +10,7 @@ namespace Guardrails.NET.Validators;
 /// <summary>
 /// Detects hazardous SQL injection tokens, tautologies, and syntax anomalies.
 /// </summary>
-public sealed class SqlInjectionValidator : IGuardValidator
+public sealed class SqlInjectionValidator : GuardValidatorBase
 {
     private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
 
@@ -32,9 +32,9 @@ public sealed class SqlInjectionValidator : IGuardValidator
         new Regex(@"(?:--|;--|/\*[\s\S]*?\*/)", RegexOptions.Compiled, DefaultRegexTimeout)
     ];
 
-    public string Name => "SqlInjectionValidator";
+    public override string Name => "SqlInjectionValidator";
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -59,3 +59,4 @@ public sealed class SqlInjectionValidator : IGuardValidator
         return Task.FromResult(GuardResult.Pass(content));
     }
 }
+

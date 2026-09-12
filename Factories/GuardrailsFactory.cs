@@ -8,7 +8,7 @@ using Guardrails.NET.Validators;
 namespace Guardrails.NET.Factories;
 
 /// <summary>
-/// Factory for creating configured validators, pipelines, and tool safety guardrails.
+/// Factory for creating configured validators and guardrail pipelines.
 /// </summary>
 public static class GuardrailsFactory
 {
@@ -55,18 +55,18 @@ public static class GuardrailsFactory
     }
 
     /// <summary>
-    /// Creates a tool guardrail pipeline with any collection of custom or built-in tool validators.
+    /// Creates a tool guardrail pipeline with any collection of custom or built-in validators.
     /// </summary>
-    public static ToolGuardrailPipeline CreateToolPipeline(params IToolCallValidator[] validators)
+    public static ToolGuardrailPipeline CreateToolPipeline(params IGuardValidator[] validators)
     {
         return new ToolGuardrailPipeline(validators);
     }
 
     /// <summary>
-    /// Creates a tool guardrail pipeline with custom/built-in tool validators and explicit fail action.
+    /// Creates a tool guardrail pipeline with custom/built-in validators and explicit fail action.
     /// </summary>
     public static ToolGuardrailPipeline CreateToolPipeline(
-        IEnumerable<IToolCallValidator> validators,
+        IEnumerable<IGuardValidator> validators,
         OnToolFailAction failAction = OnToolFailAction.ReturnFeedbackToModel)
     {
         return new ToolGuardrailPipeline(validators, failAction);
@@ -143,70 +143,5 @@ public static class GuardrailsFactory
         Func<string, bool>? permissionChecker = null)
     {
         return new ToolPermissionValidator(allowedTools, blockedTools, permissionChecker);
-    }
-
-    /// <summary>
-    /// Creates a ready-to-use PII sanitizer AITool for passing directly to an agent via ChatOptions.Tools.
-    /// </summary>
-    public static Microsoft.Extensions.AI.AIFunction CreatePiiAITool(string? name = null, string? description = null) =>
-        new NoPiiValidator().AsAITool(name, description);
-
-    /// <summary>
-    /// Creates a prompt injection detection AITool for passing directly to an agent via ChatOptions.Tools.
-    /// </summary>
-    public static Microsoft.Extensions.AI.AIFunction CreatePromptInjectionAITool(string? name = null, string? description = null) =>
-        new PromptInjectionValidator().AsAITool(name, description);
-
-    /// <summary>
-    /// Creates a secrets & credential redaction AITool for passing directly to an agent via ChatOptions.Tools.
-    /// </summary>
-    public static Microsoft.Extensions.AI.AIFunction CreateSecretsAITool(string? name = null, string? description = null) =>
-        new SecretsValidator().AsAITool(name, description);
-
-    /// <summary>
-    /// Creates a SQL injection safety checker AITool for passing directly to an agent via ChatOptions.Tools.
-    /// </summary>
-    public static Microsoft.Extensions.AI.AIFunction CreateSqlSafetyAITool(string? name = null, string? description = null) =>
-        new SqlInjectionValidator().AsAITool(name, description);
-
-    /// <summary>
-    /// Creates a file path sandbox validator AITool for passing directly to an agent via ChatOptions.Tools.
-    /// </summary>
-    public static Microsoft.Extensions.AI.AIFunction CreateFileAccessAITool(
-        string? workspaceRoot = null,
-        IEnumerable<string>? protectedPatterns = null,
-        IEnumerable<string>? allowedExtensions = null,
-        string? name = null,
-        string? description = null)
-    {
-        var validator = CreateFileAccessValidator(workspaceRoot, protectedPatterns, allowedExtensions);
-        return validator.AsAITool(name, description);
-    }
-
-    /// <summary>
-    /// Creates an SSRF URL validator AITool for passing directly to an agent via ChatOptions.Tools.
-    /// </summary>
-    public static Microsoft.Extensions.AI.AIFunction CreateSsrfAITool(
-        IEnumerable<string>? allowedDomains = null,
-        IEnumerable<string>? blockedDomains = null,
-        bool blockPrivateIps = true,
-        string? name = null,
-        string? description = null)
-    {
-        var validator = CreateSsrfValidator(allowedDomains, blockedDomains, blockPrivateIps);
-        return validator.AsAITool(name, description);
-    }
-
-    /// <summary>
-    /// Converts a collection of validators into a list of AITool instances for ChatOptions.Tools.
-    /// </summary>
-    public static IList<Microsoft.Extensions.AI.AITool> CreateAITools(params IGuardValidator[] validators)
-    {
-        var list = new List<Microsoft.Extensions.AI.AITool>(validators.Length);
-        foreach (var v in validators)
-        {
-            list.Add(v.AsAITool());
-        }
-        return list;
     }
 }
