@@ -482,5 +482,5 @@ $RECYCLE.BIN/
 *.swp
 
 # Test project contents
-/TestPackage/**
+# /TestPackage/**
 .vscode/**
