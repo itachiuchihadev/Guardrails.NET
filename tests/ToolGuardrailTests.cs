@@ -464,7 +464,8 @@ public class ToolGuardrailTests
                 var result = toolMsg.Contents.OfType<FunctionResultContent>().FirstOrDefault();
                 Assert.NotNull(result);
                 Assert.Equal("call_calc_1", result.CallId);
-                Assert.Equal(42, Convert.ToInt32(result.Result));
+                int actualSum = result.Result is System.Text.Json.JsonElement je ? je.GetInt32() : Convert.ToInt32(result.Result);
+                Assert.Equal(42, actualSum);
 
                 return new ChatResponse(new ChatMessage(ChatRole.Assistant, "The sum of 15 and 27 is 42."));
             }
