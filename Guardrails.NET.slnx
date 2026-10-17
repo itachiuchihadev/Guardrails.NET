@@ -3,4 +3,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Guardrails.NET.Tests.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="TestPackage/TestPackage.csproj" />
+  </Folder>
 </Solution>

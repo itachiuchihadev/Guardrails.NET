@@ -5,26 +5,28 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Guardrails.NET.Abstractions;
+using Guardrails.NET.Internal;
 
 namespace Guardrails.NET.Validators;
 
 /// <summary>
 /// Scans content for blocked words or toxic terms and can redact or reject them.
 /// </summary>
-public sealed class ToxicWordValidator : IGuardValidator
+public sealed class ToxicWordValidator : GuardValidatorBase
 {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
     private readonly HashSet<string> _blockedWords;
 
-    public string Name => "ToxicWordValidator";
+    public override string Name => "ToxicWordValidator";
     public string ReplacementToken { get; set; } = "[BLOCKED]";
 
     public ToxicWordValidator(IEnumerable<string> blockedWords)
     {
-        ArgumentNullException.ThrowIfNull(blockedWords);
+        GuardHelper.ThrowIfNull(blockedWords);
         _blockedWords = new HashSet<string>(blockedWords, StringComparer.OrdinalIgnoreCase);
     }
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content) || _blockedWords.Count == 0)
         {
@@ -39,10 +41,10 @@ public sealed class ToxicWordValidator : IGuardValidator
             if (string.IsNullOrWhiteSpace(word)) continue;
 
             string pattern = $@"\b{Regex.Escape(word)}\b";
-            if (Regex.IsMatch(sanitized, pattern, RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(sanitized, pattern, RegexOptions.IgnoreCase, DefaultRegexTimeout))
             {
                 violations.Add($"Prohibited term detected: '{word}'");
-                sanitized = Regex.Replace(sanitized, pattern, ReplacementToken, RegexOptions.IgnoreCase);
+                sanitized = Regex.Replace(sanitized, pattern, ReplacementToken, RegexOptions.IgnoreCase, DefaultRegexTimeout);
             }
         }
 
@@ -54,3 +56,4 @@ public sealed class ToxicWordValidator : IGuardValidator
         return Task.FromResult(GuardResult.Pass(content));
     }
 }
+

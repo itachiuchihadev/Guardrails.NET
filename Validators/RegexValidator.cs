@@ -3,18 +3,20 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Guardrails.NET.Abstractions;
+using Guardrails.NET.Internal;
 
 namespace Guardrails.NET.Validators;
 
 /// <summary>
 /// Validates content against a customizable regular expression.
 /// </summary>
-public sealed class RegexValidator : IGuardValidator
+public sealed class RegexValidator : GuardValidatorBase
 {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
     private readonly Regex _regex;
     private readonly string _name;
 
-    public string Name => _name;
+    public override string Name => _name;
     public string ViolationMessage { get; set; }
     public bool MustMatch { get; set; }
     public string? Replacement { get; set; }
@@ -25,17 +27,18 @@ public sealed class RegexValidator : IGuardValidator
         bool mustMatch = false,
         string? replacement = null,
         string name = "RegexValidator",
-        RegexOptions options = RegexOptions.None)
+        RegexOptions options = RegexOptions.None,
+        TimeSpan? matchTimeout = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(pattern);
-        _regex = new Regex(pattern, options);
+        GuardHelper.ThrowIfNullOrWhiteSpace(pattern);
+        _regex = new Regex(pattern, options, matchTimeout ?? DefaultRegexTimeout);
         ViolationMessage = violationMessage;
         MustMatch = mustMatch;
         Replacement = replacement;
         _name = name;
     }
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(content))
         {
@@ -60,3 +63,4 @@ public sealed class RegexValidator : IGuardValidator
         return Task.FromResult(GuardResult.Pass(content));
     }
 }
+

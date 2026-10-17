@@ -16,6 +16,7 @@ public class MockChatClient : IChatClient
 {
     public bool WasCalled { get; private set; }
     public List<ChatMessage> LastReceivedMessages { get; private set; } = new();
+    public ChatOptions? LastReceivedOptions { get; private set; }
     public string ResponseToReturn { get; set; } = "Default safe response";
 
     public ChatClientMetadata Metadata => new("MockChatClient");
@@ -27,6 +28,7 @@ public class MockChatClient : IChatClient
     {
         WasCalled = true;
         LastReceivedMessages = chatMessages.ToList();
+        LastReceivedOptions = options;
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, ResponseToReturn)));
     }
 
@@ -37,6 +39,7 @@ public class MockChatClient : IChatClient
     {
         WasCalled = true;
         LastReceivedMessages = chatMessages.ToList();
+        LastReceivedOptions = options;
         yield return new ChatResponseUpdate(ChatRole.Assistant, ResponseToReturn);
         await Task.CompletedTask;
     }

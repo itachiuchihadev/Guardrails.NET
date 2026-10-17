@@ -9,25 +9,27 @@ namespace Guardrails.NET.Validators;
 /// <summary>
 /// Scans content for Personally Identifiable Information (PII) including emails, SSNs, credit cards, and phone numbers.
 /// </summary>
-public sealed class NoPiiValidator : IGuardValidator
+public sealed class NoPiiValidator : GuardValidatorBase
 {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
+
     private static readonly Regex EmailRegex = new(
         @"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout);
 
     private static readonly Regex SsnRegex = new(
         @"\b\d{3}-\d{2}-\d{4}\b",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, DefaultRegexTimeout);
 
     private static readonly Regex PhoneRegex = new(
         @"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, DefaultRegexTimeout);
 
     private static readonly Regex CreditCardRegex = new(
         @"\b(?:\d{4}[-\s]?){3}\d{4}\b|\b\d{15,16}\b",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, DefaultRegexTimeout);
 
-    public string Name => "NoPiiValidator";
+    public override string Name => "NoPiiValidator";
 
     public bool ScanEmails { get; set; } = true;
     public bool ScanSsns { get; set; } = true;
@@ -39,7 +41,7 @@ public sealed class NoPiiValidator : IGuardValidator
     public string PhoneMask { get; set; } = "[REDACTED_PHONE]";
     public string CreditCardMask { get; set; } = "[REDACTED_CREDIT_CARD]";
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(content))
         {
@@ -81,3 +83,4 @@ public sealed class NoPiiValidator : IGuardValidator
         return Task.FromResult(GuardResult.Pass(content));
     }
 }
+

@@ -10,29 +10,31 @@ namespace Guardrails.NET.Validators;
 /// <summary>
 /// Detects hazardous SQL injection tokens, tautologies, and syntax anomalies.
 /// </summary>
-public sealed class SqlInjectionValidator : IGuardValidator
+public sealed class SqlInjectionValidator : GuardValidatorBase
 {
-    private static readonly Regex[] SqlPatterns = new[]
-    {
+    private static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromSeconds(1);
+
+    private static readonly Regex[] SqlPatterns =
+    [
         // UNION SELECT
-        new Regex(@"\bUNION\s+(?:ALL\s+)?SELECT\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new Regex(@"\bUNION\s+(?:ALL\s+)?SELECT\b", RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
         
         // Tautologies like OR 1=1 or OR 'a'='a'
-        new Regex(@"\b(?:OR|AND)\s+['""\d\w]+\s*=\s*['""\d\w]+", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new Regex(@"\b(?:OR|AND)\s+['""\d\w]+\s*=\s*['""\d\w]+", RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         // Destructive DDL / DML
-        new Regex(@"\b(?:DROP\s+TABLE|DROP\s+DATABASE|TRUNCATE\s+TABLE|ALTER\s+TABLE)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new Regex(@"\b(?:DROP\s+TABLE|DROP\s+DATABASE|TRUNCATE\s+TABLE|ALTER\s+TABLE)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         // Stored procedure execution
-        new Regex(@"\b(?:EXEC|EXECUTE)\s+(?:sp_|xp_)\w+", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new Regex(@"\b(?:EXEC|EXECUTE)\s+(?:sp_|xp_)\w+", RegexOptions.Compiled | RegexOptions.IgnoreCase, DefaultRegexTimeout),
 
         // Inline SQL comment sequences
-        new Regex(@"(?:--|;--|/\*[\s\S]*?\*/)", RegexOptions.Compiled)
-    };
+        new Regex(@"(?:--|;--|/\*[\s\S]*?\*/)", RegexOptions.Compiled, DefaultRegexTimeout)
+    ];
 
-    public string Name => "SqlInjectionValidator";
+    public override string Name => "SqlInjectionValidator";
 
-    public Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
+    public override Task<GuardResult> ValidateAsync(string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -57,3 +59,4 @@ public sealed class SqlInjectionValidator : IGuardValidator
         return Task.FromResult(GuardResult.Pass(content));
     }
 }
+
